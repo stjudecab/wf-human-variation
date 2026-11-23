@@ -1,7 +1,7 @@
 def longphase_memory = [8.GB, 32.GB, 56.GB]
-def whatshap_memory = [4.GB, 8.GB, 12.GB]
-def haptag_memory = [4.GB, 8.GB, 12.GB]
-def aggregate_memory = [4.GB, 8.GB, 16.GB]
+def whatshap_memory = [8.GB, 12.GB, 16.GB]
+def haptag_memory = [8.GB, 12.GB, 16.GB]
+def aggregate_memory = [8.GB, 12.GB, 16.GB]
 
 // As of Clair3 v1.0.6, set `--min_snp_af` and `--min_indel_af` to 0 with `--vcf_fn`.
 def snp_min_af = params.vcf_fn ? "--snp_min_af 0.0": "--snp_min_af ${params.snp_min_af}"
@@ -18,7 +18,9 @@ process make_chunks {
         tuple path(xam), path(xam_idx), val(xam_meta)
         tuple path(ref), path(ref_idx), path(ref_cache), env(REF_PATH)
         path bed
-        path model_path
+        // staged in a subdirectory to avoid a name collision with the bed when both
+        // are OPTIONAL_FILE (the model is not needed with --snp_caller deepvariant)
+        path model_path, stageAs: "clair3_model/"
         val chromosome_codes
         path genotyping_vcf, stageAs: "genotyping_vcf/"
     output:
@@ -336,9 +338,9 @@ process evaluate_candidates {
     // phased_bam just references the input BAM as it no longer contains phase information.
     label "wf_human_snp"
     cpus 1
-    memory { ["3.6 GB", "7 GB", "29 GB"][task.attempt - 1] }  // CW-5461, CW-6182
+    memory { ["3.6 GB", "7 GB", "29 GB", "48 GB", "96 GB"][task.attempt - 1] }  // CW-5461, CW-6182
     errorStrategy 'retry'
-    maxRetries 2
+    maxRetries 4
 
     input:
         tuple val(contig), path(phased_xam), path(phased_xai), val(xam_meta), path(phased_vcf)
@@ -468,7 +470,7 @@ process post_clair_phase_contig {
     // Define memory from phasing tool and number of attempt
     memory { whatshap_memory[task.attempt - 1] }
     maxRetries 2
-    errorStrategy {task.exitStatus in [137,140] ? 'retry' : 'finish'}
+    errorStrategy {task.exitStatus in [130,137,140] ? 'retry' : 'finish'}
 
     input:
         tuple val(xam_meta), val(contig),
@@ -511,7 +513,7 @@ process post_clair_contig_haplotag {
     // Define memory from phasing tool and number of attempt
     memory { haptag_memory[task.attempt - 1] }
     maxRetries 2
-    errorStrategy {task.exitStatus in [137,140] ? 'retry' : 'finish'}
+    errorStrategy {task.exitStatus in [130,137,140] ? 'retry' : 'finish'}
 
     input:
         tuple val(contig),

@@ -28,9 +28,18 @@ process cram_to_bam {
 // Minimap2 mapping
 process minimap2_alignment {
     cpus {params.ubam_map_threads + params.ubam_sort_threads + params.ubam_bam2fq_threads}
-    memory { (32.GB * task.attempt) - 1.GB }
-    maxRetries 1
-    errorStrategy {task.exitStatus in [137,140] ? 'retry' : 'finish'}
+    // memory { (32.GB * task.attempt) - 1.GB }
+    memory {
+        def minimap2_index  = 8.GB                 // human genome .mmi index
+        def minimap2_per_thread = 0.7.GB           // cap-kalloc 500m + cap-sw-mem 200m
+        def minimap2_mem    = minimap2_index + (params.ubam_map_threads * minimap2_per_thread)
+        def sort_mem        = params.ubam_sort_threads * 8.GB
+        def overhead        = 4.GB                 // pipes, samtools reset/fastq, reheader, OS
+        def total           = minimap2_mem + sort_mem + overhead
+        (total * task.attempt) - 1.GB
+    }
+    maxRetries 4
+    errorStrategy {task.exitStatus in ((130..145) + 104) ? 'retry' : 'finish'}
     input:
         path reference
         tuple val(meta), path(reads), path(reads_idx)
@@ -50,7 +59,7 @@ process minimap2_alignment {
         | workflow-glue reheader_samstream reads.header \
              --insert \$'@PG\\tID:reset\\tPN:samtools\\tCL:${reset_cmd_body}' \
              --insert \$'@PG\\tID:fastq\\tPN:samtools\\tCL:${fastq_cmd_body}' \
-        | samtools sort -@ ${params.ubam_sort_threads} \
+        | samtools sort -m 8G -@ ${params.ubam_sort_threads} \
             --write-index -o ${meta.alias}.${align_ext}##idx##${meta.alias}.${align_ext}.${index_ext} \
             -O ${align_ext} --reference ${reference} -
 
